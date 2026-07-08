@@ -36,7 +36,7 @@ export const api = {
 
 /**
  * Send a message and consume the SSE stream.
- * Callbacks: onUser, onDelta(text), onDone({message,title}), onError(msg).
+ * Callbacks: onUser, onDelta(text), onReasoning(text), onDone({message,title}), onError(msg).
  * Returns an AbortController so the caller can stop generation.
  */
 export function sendMessage(conversationId, content, handlers = {}) {
@@ -72,6 +72,7 @@ export function sendMessage(conversationId, content, handlers = {}) {
     const dispatch = (event, data) => {
       if (event === 'user') handlers.onUser?.(data);
       else if (event === 'delta') handlers.onDelta?.(data.text);
+      else if (event === 'reasoning') handlers.onReasoning?.(data.text);
       else if (event === 'done') handlers.onDone?.(data);
       else if (event === 'error') handlers.onError?.(data.message);
     };

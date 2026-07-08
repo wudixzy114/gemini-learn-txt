@@ -604,6 +604,49 @@ button { font-family: inherit; cursor: pointer; }
 .markdown .katex { font-size: 1.06em; }
 .markdown .katex-display { margin: 1.2em 0; overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
 
+/* Reasoning ("thinking") block — subordinate to the answer */
+.reasoning {
+  margin: 2px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.reasoning.open { background: var(--surface-2); }
+.reasoning-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 13px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.14s;
+}
+.reasoning-toggle:hover { color: var(--ink-soft); }
+.reasoning-caret {
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.16s var(--ease);
+}
+.reasoning-caret.open { transform: rotate(90deg); }
+.reasoning-body {
+  padding: 2px 14px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.reasoning-body .markdown { font-size: 14px; color: var(--ink-soft); }
+.reasoning-body .markdown p { margin: 0.5em 0; }
+
 /* Message actions */
 .msg-actions { margin-top: 10px; }
 .ghost-btn {

@@ -5,15 +5,12 @@ import { config } from './config.js';
 // or "model"), an optional `systemInstruction`, and a newline-delimited JSON
 // stream (NOT SSE `data:` frames). Each streamed line looks like:
 //   {"candidates":[{"content":{"parts":[{"text":"..."}],"role":"model"}}]}
-// Some parts carry a `thoughtSignature` with empty text (thinking tokens) —
-// those are skipped.
+// With generationConfig.thinkingConfig.includeThoughts=true, reasoning arrives
+// as parts flagged `thought: true` (streamed before the answer parts); we split
+// those out via splitParts() and surface them on a separate channel.
 
-const SYSTEM_PROMPT =
-  'You are a knowledgeable, patient study companion. Help the user learn and think clearly. ' +
-  'Prefer well-structured Markdown: use headings, short paragraphs, bullet lists, tables when comparing things, ' +
-  'and fenced code blocks with a language tag. Use LaTeX ($...$ inline, $$...$$ block) for math. ' +
-  'Explain reasoning step by step when it aids understanding, and be concise otherwise. ' +
-  'Match the language of your reply to the language the user writes in.';
+const TITLING_FALLBACK =
+  'Generate a short, specific title for the conversation.';
 
 // Map our stored messages (role: user|assistant) to Gemini contents.
 function toContents(messages) {
@@ -25,27 +22,39 @@ function toContents(messages) {
     }));
 }
 
-function buildBody(messages, { stream, systemPrompt = SYSTEM_PROMPT, generationConfig } = {}) {
+function buildBody(messages, { stream, systemPrompt, generationConfig } = {}) {
   const body = {
     model: config.model,
-    systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: toContents(messages),
     stream: Boolean(stream),
   };
+  // Only attach a system instruction when one is explicitly supplied. The main
+  // chat sends none (no preset prompt); utility calls like titling pass their own.
+  if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
   if (generationConfig) body.generationConfig = generationConfig;
   return body;
 }
 
-// Pull the text out of a single streamed/parsed Gemini chunk, ignoring
-// thinking-only parts (which have empty text alongside a thoughtSignature).
-function extractText(json) {
+// Split a parsed Gemini chunk into answer text and reasoning ("thought") text.
+// Thought parts carry `thought: true` (present only when includeThoughts is set);
+// answer parts have text without the thought flag. Empty parts are ignored.
+function splitParts(json) {
   const parts = json?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return '';
-  let text = '';
-  for (const p of parts) {
-    if (typeof p?.text === 'string' && p.text) text += p.text;
+  let answer = '';
+  let reasoning = '';
+  if (Array.isArray(parts)) {
+    for (const p of parts) {
+      if (typeof p?.text !== 'string' || !p.text) continue;
+      if (p.thought) reasoning += p.text;
+      else answer += p.text;
+    }
   }
-  return text;
+  return { answer, reasoning };
+}
+
+// Answer-only text, for non-streaming utility calls.
+function extractText(json) {
+  return splitParts(json).answer;
 }
 
 async function postResponses(body, abortSignal) {
@@ -77,17 +86,20 @@ async function postResponses(body, abortSignal) {
 }
 
 /**
- * Stream a chat completion. Calls onDelta(textChunk) for each new text chunk.
- * Returns the full accumulated text. Throws on non-2xx or network failure.
+ * Stream a chat completion. Calls onDelta(text) for each answer chunk and
+ * onReasoning(text) for each thinking chunk. Returns { answer, reasoning }.
+ * Throws on non-2xx or network failure.
  */
-export async function streamChat({ messages, signal, onDelta, temperature = 0.7 }) {
+export async function streamChat({ messages, signal, onDelta, onReasoning, temperature = 0.7 }) {
   const body = buildBody(messages, {
     stream: true,
     generationConfig: {
       temperature,
+      maxOutputTokens: config.maxOutputTokens,
       // Push reasoning to its maximum for the main chat. Gemini 3 controls this
       // with thinkingLevel ("high" = deepest); configurable via XIAOSHU_THINKING_LEVEL.
-      thinkingConfig: { thinkingLevel: config.thinkingLevel },
+      // includeThoughts surfaces the reasoning parts so we can display them.
+      thinkingConfig: { thinkingLevel: config.thinkingLevel, includeThoughts: true },
     },
   });
 
@@ -106,6 +118,7 @@ export async function streamChat({ messages, signal, onDelta, temperature = 0.7 
   const decoder = new TextDecoder();
   let buffer = '';
   let full = '';
+  let thinking = '';
 
   const flushLine = (line) => {
     const trimmed = line.trim();
@@ -115,10 +128,14 @@ export async function streamChat({ messages, signal, onDelta, temperature = 0.7 
     if (!payload || payload === '[DONE]') return;
     try {
       const json = JSON.parse(payload);
-      const text = extractText(json);
-      if (text) {
-        full += text;
-        onDelta?.(text);
+      const { answer, reasoning } = splitParts(json);
+      if (reasoning) {
+        thinking += reasoning;
+        onReasoning?.(reasoning);
+      }
+      if (answer) {
+        full += answer;
+        onDelta?.(answer);
       }
     } catch {
       // Partial or non-JSON line; ignore (complete lines are handled below).
@@ -146,14 +163,14 @@ export async function streamChat({ messages, signal, onDelta, temperature = 0.7 
     reader.releaseLock?.();
   }
 
-  return full;
+  return { answer: full, reasoning: thinking };
 }
 
 /** Non-streaming completion used for short utility calls like auto-titling. */
 export async function completeOnce({ messages, systemPrompt, temperature = 0.3, maxTokens = 200 }) {
   const body = buildBody(messages, {
     stream: false,
-    systemPrompt: systemPrompt || SYSTEM_PROMPT,
+    systemPrompt: systemPrompt || TITLING_FALLBACK,
     generationConfig: {
       temperature,
       maxOutputTokens: maxTokens,

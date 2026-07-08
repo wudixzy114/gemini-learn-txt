@@ -86,7 +86,7 @@ export const useStore = create((set, get) => ({
     if (!text || !id || get().streaming) return;
 
     const userMsg = { id: `local-${Date.now()}`, role: 'user', content: text };
-    const assistantMsg = { id: `local-a-${Date.now()}`, role: 'assistant', content: '' };
+    const assistantMsg = { id: `local-a-${Date.now()}`, role: 'assistant', content: '', reasoning: '' };
 
     set((s) => ({
       messages: [...s.messages, userMsg, assistantMsg],
@@ -111,6 +111,15 @@ export const useStore = create((set, get) => ({
         set((s) => ({
           messages: s.messages.map((m) =>
             m.id === assistantMsg.id ? { ...m, content: m.content + delta } : m
+          ),
+        }));
+      },
+      onReasoning: (delta) => {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === assistantMsg.id
+              ? { ...m, reasoning: (m.reasoning || '') + delta }
+              : m
           ),
         }));
       },

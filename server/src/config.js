@@ -27,6 +27,10 @@ export const config = {
   // Gemini-3 reasoning depth for the main chat: "high" (max) | "medium" | "low".
   // (Gemini 3 uses thinkingLevel; the older numeric thinkingBudget is superseded.)
   thinkingLevel: process.env.XIAOSHU_THINKING_LEVEL || 'high',
+  // Max answer tokens for the main chat. 65536 is the gateway's hard ceiling for
+  // this model (it rejects >=65537 with INVALID_ARGUMENT). Input isn't a request
+  // param — it's the model's ~1M context window, and full history is always sent.
+  maxOutputTokens: Number(process.env.XIAOSHU_MAX_OUTPUT_TOKENS) || 65536,
   timeoutMs: (Number(process.env.JD_LLM_TIMEOUT) || 90) * 1000,
   maxRetries: Number(process.env.JD_LLM_MAX_RETRIES) || 2,
   dataDir: path.join(rootDir, 'server', 'data'),

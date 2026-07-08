@@ -21,9 +21,39 @@ function MessageActions({ content }) {
   );
 }
 
+// Collapsible reasoning ("thinking") block shown above the answer. While the
+// model is still thinking (reasoning streaming, no answer yet) it stays open;
+// once the answer starts it can be collapsed to keep the transcript readable.
+function Reasoning({ text, active }) {
+  const [open, setOpen] = useState(false);
+  const show = open || active;
+  return (
+    <div className={`reasoning ${show ? 'open' : ''}`}>
+      <button
+        className="reasoning-toggle"
+        onClick={() => setOpen((v) => !v)}
+        type="button"
+        aria-expanded={show}
+      >
+        <span className={`reasoning-caret ${show ? 'open' : ''}`} aria-hidden="true">›</span>
+        {active ? 'Thinking…' : 'Thought process'}
+      </button>
+      {show && (
+        <div className="reasoning-body">
+          <Markdown content={text} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Message({ message, streaming }) {
   const isUser = message.role === 'user';
   const empty = !message.content;
+  const hasReasoning = !isUser && !!message.reasoning;
+  // The thinking phase is "active" while reasoning is streaming but the answer
+  // hasn't begun yet — keep the block open then so the user sees live thinking.
+  const thinkingActive = streaming && hasReasoning && empty;
 
   return (
     <div className={`msg-row ${isUser ? 'user' : 'assistant'}`}>
@@ -35,14 +65,21 @@ export default function Message({ message, streaming }) {
           <div className="msg-name">{isUser ? 'You' : 'Study Room'}</div>
           {isUser ? (
             <div className="user-text">{message.content}</div>
-          ) : empty && streaming ? (
-            <div className="typing" aria-label="Assistant is typing">
-              <span></span><span></span><span></span>
-            </div>
           ) : (
             <>
-              <Markdown content={message.content} />
-              {streaming && <span className="stream-caret" aria-hidden="true" />}
+              {hasReasoning && <Reasoning text={message.reasoning} active={thinkingActive} />}
+              {empty && streaming ? (
+                !hasReasoning && (
+                  <div className="typing" aria-label="Assistant is typing">
+                    <span></span><span></span><span></span>
+                  </div>
+                )
+              ) : (
+                <>
+                  <Markdown content={message.content} />
+                  {streaming && <span className="stream-caret" aria-hidden="true" />}
+                </>
+              )}
             </>
           )}
           {!isUser && !empty && !streaming && <MessageActions content={message.content} />}

@@ -93,7 +93,7 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
 
   send('user', userMsg);
 
-  const assistantMsg = { id: nanoid(10), role: 'assistant', content: '', createdAt: now() };
+  const assistantMsg = { id: nanoid(10), role: 'assistant', content: '', reasoning: '', createdAt: now() };
   const abort = new AbortController();
   // Abort the upstream call only if the client disconnects mid-stream.
   // Listen on `res`, not `req`: `req` emits 'close' as soon as its body is
@@ -107,6 +107,10 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
     await streamChat({
       messages: conv.messages,
       signal: abort.signal,
+      onReasoning: (delta) => {
+        assistantMsg.reasoning += delta;
+        send('reasoning', { text: delta });
+      },
       onDelta: (delta) => {
         assistantMsg.content += delta;
         send('delta', { text: delta });
@@ -115,7 +119,7 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
   } catch (err) {
     finished = true;
     // Persist whatever partial text we streamed so it isn't lost.
-    if (assistantMsg.content) {
+    if (assistantMsg.content || assistantMsg.reasoning) {
       conv.messages.push(assistantMsg);
       conv.updatedAt = now();
       saveConversation(conv);
