@@ -24,6 +24,9 @@ export const config = {
   apiKey: required('JD_LLM_API_KEY'),
   baseUrl: required('JD_LLM_BASE_URL').replace(/\/+$/, ''),
   model: process.env.XIAOSHU_MODEL || 'Gemini-3-Flash-Preview-joybuilder',
+  // Gemini-3 reasoning depth for the main chat: "high" (max) | "medium" | "low".
+  // (Gemini 3 uses thinkingLevel; the older numeric thinkingBudget is superseded.)
+  thinkingLevel: process.env.XIAOSHU_THINKING_LEVEL || 'high',
   timeoutMs: (Number(process.env.JD_LLM_TIMEOUT) || 90) * 1000,
   maxRetries: Number(process.env.JD_LLM_MAX_RETRIES) || 2,
   dataDir: path.join(rootDir, 'server', 'data'),

@@ -83,7 +83,12 @@ async function postResponses(body, abortSignal) {
 export async function streamChat({ messages, signal, onDelta, temperature = 0.7 }) {
   const body = buildBody(messages, {
     stream: true,
-    generationConfig: { temperature },
+    generationConfig: {
+      temperature,
+      // Push reasoning to its maximum for the main chat. Gemini 3 controls this
+      // with thinkingLevel ("high" = deepest); configurable via XIAOSHU_THINKING_LEVEL.
+      thinkingConfig: { thinkingLevel: config.thinkingLevel },
+    },
   });
 
   const { response, cleanup } = await postResponses(body, signal);
