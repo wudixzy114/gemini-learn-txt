@@ -19,6 +19,35 @@ export default function Composer() {
 
   useEffect(autosize, [value, autosize]);
 
+  // Global shortcut: Shift+Enter focuses the composer so the user can start
+  // typing without reaching for the mouse. Guarded to fire only when focus is
+  // NOT already in an editable field — otherwise it would hijack the composer's
+  // own Shift+Enter (newline) and the sidebar's rename input.
+  useEffect(() => {
+    const isEditable = (el) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Enter' || !e.shiftKey) return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent?.isComposing) return;
+      // Check the event's origin element, not document.activeElement — focus can
+      // move mid-event (e.g. the sidebar rename input commits + unmounts on Enter
+      // before this bubble-phase listener runs), but e.target stays stable.
+      if (isEditable(e.target)) return;
+      e.preventDefault();
+      const ta = taRef.current;
+      if (ta) {
+        ta.focus();
+        const end = ta.value.length;
+        ta.setSelectionRange(end, end);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const submit = () => {
     const text = value.trim();
     if (!text || streaming || !activeId) return;
