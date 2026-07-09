@@ -76,3 +76,7 @@ export const IconRegenerate = (p) => (
     <path d="M21 3v5h-5" />
   </svg>
 );
+
+export const IconArrowDown = (p) => (
+  <svg {...base} {...p}><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+);
