@@ -24,6 +24,23 @@ export default function App() {
   const activeId = useStore((s) => s.activeId);
   const [theme, toggleTheme] = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('sidebarCollapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapse = () => {
+    setCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('sidebarCollapsed', next ? '1' : '0');
+      } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     init();
@@ -32,9 +49,13 @@ export default function App() {
   const active = conversations.find((c) => c.id === activeId);
 
   return (
-    <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
+    <div className={`app ${sidebarOpen ? 'sidebar-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />
-      <Sidebar onNavigate={() => setSidebarOpen(false)} />
+      <Sidebar
+        onNavigate={() => setSidebarOpen(false)}
+        collapsed={collapsed}
+        onToggleCollapse={toggleCollapse}
+      />
 
       <main className="main">
         <header className="topbar">

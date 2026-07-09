@@ -10,6 +10,8 @@ import {
   getConversation,
   saveConversation,
   deleteConversation,
+  reorderConversations,
+  nextTopOrder,
 } from './store.js';
 import { streamChat, completeOnce } from './llm.js';
 
@@ -23,7 +25,7 @@ const now = () => Date.now();
 
 function newConversation() {
   const ts = now();
-  return { id: nanoid(12), title: 'New chat', model: config.model, createdAt: ts, updatedAt: ts, messages: [] };
+  return { id: nanoid(12), title: 'New chat', model: config.model, order: nextTopOrder(), createdAt: ts, updatedAt: ts, messages: [] };
 }
 
 // ---- Health / meta ---------------------------------------------------------
@@ -45,6 +47,14 @@ app.post('/api/conversations', (_req, res) => {
   const conv = newConversation();
   saveConversation(conv);
   res.status(201).json(conv);
+});
+
+// Persist a manual list order. Body: { ids: [id, ...] } in top-to-bottom order.
+app.put('/api/conversations/order', (req, res) => {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
+  reorderConversations(ids);
+  res.json({ ok: true });
 });
 
 app.get('/api/conversations/:id', (req, res) => {

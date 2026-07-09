@@ -37,13 +37,34 @@ export const useStore = create((set, get) => ({
 
   // ---- Conversation lifecycle ---------------------------------------------
   async newChat() {
-    // Reuse an existing empty "New chat" instead of piling up blanks.
-    const existingEmpty = get().conversations.find(
-      (c) => c.title === 'New chat' && c.messageCount === 0
-    );
-    if (existingEmpty) {
-      return get().selectConversation(existingEmpty.id);
+    const { activeId, messages, streaming, conversations } = get();
+
+    // If we're already sitting on an idle, empty "New chat" with nothing typed
+    // or streamed, just stay — creating another would pile up blanks. This also
+    // fixes the stuck-navigation bug: previously the reuse logic could pick the
+    // *active* empty chat, and selectConversation() no-ops on the active id, so
+    // the click did nothing and only a refresh recovered.
+    const activeConv = conversations.find((c) => c.id === activeId);
+    if (
+      activeConv &&
+      activeConv.title === 'New chat' &&
+      (activeConv.messageCount || 0) === 0 &&
+      messages.length === 0 &&
+      !streaming
+    ) {
+      set({ streamError: null });
+      return;
     }
+
+    // Stop any in-flight stream before leaving the current conversation.
+    if (streaming) get().stopGeneration();
+
+    // Reuse a *different* blank "New chat" rather than creating another.
+    const existingEmpty = conversations.find(
+      (c) => c.id !== activeId && c.title === 'New chat' && (c.messageCount || 0) === 0
+    );
+    if (existingEmpty) return get().selectConversation(existingEmpty.id);
+
     const conv = await api.createConversation();
     set((s) => ({
       conversations: [{ ...conv, messageCount: 0 }, ...s.conversations],
@@ -55,8 +76,10 @@ export const useStore = create((set, get) => ({
   },
 
   async selectConversation(id) {
-    if (get().streaming) get().stopGeneration();
+    // Guard first: selecting the already-active conversation is a true no-op and
+    // must NOT abort an in-flight stream (that was part of the stuck-nav bug).
     if (id === get().activeId) return;
+    if (get().streaming) get().stopGeneration();
     set({ loadingConversation: true, streamError: null, activeId: id });
     try {
       const conv = await api.getConversation(id);
@@ -68,6 +91,21 @@ export const useStore = create((set, get) => ({
     } catch (err) {
       set({ loadingConversation: false, streamError: err.message });
     }
+  },
+
+  // Persist a manual list order (drag-to-reorder). Optimistic: apply locally,
+  // then save. `orderedIds` is the full list top-to-bottom.
+  async reorderConversations(orderedIds) {
+    set((s) => {
+      const byId = new Map(s.conversations.map((c) => [c.id, c]));
+      const next = orderedIds.map((id) => byId.get(id)).filter(Boolean);
+      // Keep any not named in the list (safety) appended in their prior order.
+      for (const c of s.conversations) if (!orderedIds.includes(c.id)) next.push(c);
+      return { conversations: next };
+    });
+    try {
+      await api.reorderConversations(orderedIds);
+    } catch { /* keep optimistic order; a reload re-syncs from server */ }
   },
 
   async deleteConversation(id) {
@@ -124,13 +162,6 @@ export const useStore = create((set, get) => ({
       streamError: null,
     }));
 
-    const bump = () =>
-      set((s) => ({
-        conversations: [...s.conversations].sort((a, b) =>
-          a.id === id ? -1 : b.id === id ? 1 : 0
-        ),
-      }));
-
     const controller = sendMessage(id, text, {
       onUser: (serverMsg) => {
         set((s) => ({
@@ -171,7 +202,6 @@ export const useStore = create((set, get) => ({
               : c
           ),
         }));
-        bump();
       },
       onError: (message) => {
         set((s) => ({

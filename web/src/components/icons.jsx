@@ -84,3 +84,22 @@ export const IconArrowDown = (p) => (
 export const IconChevronDown = (p) => (
   <svg {...base} {...p}><path d="m6 9 6 6 6-6" /></svg>
 );
+
+// Panel-collapse (chevrons pointing left, toward the edge).
+export const IconCollapse = (p) => (
+  <svg {...base} {...p}><path d="m11 17-5-5 5-5M18 17l-5-5 5-5" /></svg>
+);
+
+// Panel-expand (chevrons pointing right).
+export const IconExpand = (p) => (
+  <svg {...base} {...p}><path d="m13 17 5-5-5-5M6 17l5-5-5-5" /></svg>
+);
+
+// Drag handle (six dots).
+export const IconGrip = (p) => (
+  <svg {...base} {...p} strokeWidth="0" fill="currentColor">
+    <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+    <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+    <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+  </svg>
+);

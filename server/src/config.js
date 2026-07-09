@@ -57,5 +57,7 @@ export const config = {
   maxOutputTokens: Number(process.env.XIAOSHU_MAX_OUTPUT_TOKENS) || 65536,
   timeoutMs: (Number(process.env.JD_LLM_TIMEOUT) || 90) * 1000,
   maxRetries: Number(process.env.JD_LLM_MAX_RETRIES) || 2,
-  dataDir: path.join(rootDir, 'server', 'data'),
+  dataDir: process.env.XIAOSHU_DATA_DIR
+    ? path.resolve(process.env.XIAOSHU_DATA_DIR)
+    : path.join(rootDir, 'server', 'data'),
 };

@@ -81,7 +81,10 @@ export default function ChatView() {
     if (shownIdRef.current !== activeId) {
       restoringRef.current = true;
       const saved = positions.current.get(activeId);
-      el.scrollTo({ top: saved != null ? saved : el.scrollHeight, behavior: 'auto' });
+      // 'instant' (not 'auto') so the restore jumps immediately — 'auto' defers
+      // to the container's CSS scroll-behavior: smooth, which would animate the
+      // tab switch.
+      el.scrollTo({ top: saved != null ? saved : el.scrollHeight, behavior: 'instant' });
       shownIdRef.current = activeId;
       prevCountRef.current = messages.length;
       setShowJump(!nearBottom());

@@ -41,6 +41,13 @@ export const api = {
 
   deleteConversation: (id) =>
     fetch(`/api/conversations/${id}`, { method: 'DELETE' }).then(json),
+
+  reorderConversations: (ids) =>
+    fetch('/api/conversations/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }).then(json),
 };
 
 /**
