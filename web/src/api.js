@@ -48,23 +48,27 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
     }).then(json),
+
+  // Delete the whole turn a message belongs to; resolves to the survivors.
+  deleteMessage: (id, messageId) =>
+    fetch(`/api/conversations/${id}/messages/${messageId}`, { method: 'DELETE' }).then(json),
 };
 
 /**
- * Send a message and consume the SSE stream.
+ * POST to an SSE endpoint and consume the event stream.
  * Callbacks: onUser, onDelta(text), onReasoning(text), onDone({message,title}), onError(msg).
  * Returns an AbortController so the caller can stop generation.
  */
-export function sendMessage(conversationId, content, handlers = {}, model) {
+function consumeSSE(url, body, handlers = {}) {
   const controller = new AbortController();
 
   (async () => {
     let res;
     try {
-      res = await fetch(`/api/conversations/${conversationId}/messages`, {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(model ? { content, model } : { content }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
     } catch (err) {
@@ -121,4 +125,22 @@ export function sendMessage(conversationId, content, handlers = {}, model) {
   })();
 
   return controller;
+}
+
+/** Send a message and stream the reply. See consumeSSE for the handler shape. */
+export function sendMessage(conversationId, content, handlers = {}, model) {
+  return consumeSSE(
+    `/api/conversations/${conversationId}/messages`,
+    model ? { content, model } : { content },
+    handlers
+  );
+}
+
+/** Regenerate the latest assistant reply. See consumeSSE for the handler shape. */
+export function regenerateMessage(conversationId, messageId, handlers = {}, model) {
+  return consumeSSE(
+    `/api/conversations/${conversationId}/messages/${messageId}/regenerate`,
+    model ? { model } : {},
+    handlers
+  );
 }

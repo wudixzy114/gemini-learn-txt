@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api, sendMessage } from './api.js';
+import { api, sendMessage, regenerateMessage } from './api.js';
 
 export const useStore = create((set, get) => ({
   conversations: [],
@@ -148,6 +148,53 @@ export const useStore = create((set, get) => ({
   },
 
   // ---- Sending & streaming -------------------------------------------------
+  // Build the streaming handlers shared by send() and regenerate(). `assistantId`
+  // is the id of the placeholder assistant bubble whose text the deltas fill in.
+  _streamHandlers(convId, assistantId, { onUserSwap } = {}) {
+    return {
+      onUser: onUserSwap,
+      onDelta: (delta) => {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === assistantId ? { ...m, content: m.content + delta } : m
+          ),
+        }));
+      },
+      onReasoning: (delta) => {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === assistantId
+              ? { ...m, reasoning: (m.reasoning || '') + delta }
+              : m
+          ),
+        }));
+      },
+      onDone: ({ message, title }) => {
+        set((s) => ({
+          messages: s.messages.map((m) => (m.id === assistantId ? message : m)),
+          streaming: false,
+          controller: null,
+          conversations: s.conversations.map((c) =>
+            c.id === convId
+              ? { ...c, title: title || c.title, updatedAt: Date.now() }
+              : c
+          ),
+        }));
+      },
+      onError: (message) => {
+        set((s) => ({
+          streaming: false,
+          controller: null,
+          streamError: message,
+          // Drop the empty assistant bubble if nothing streamed.
+          messages: s.messages.filter(
+            (m) => !(m.id === assistantId && !m.content)
+          ),
+        }));
+      },
+    };
+  },
+
   async send(content) {
     const text = content.trim();
     const id = get().activeId;
@@ -162,61 +209,77 @@ export const useStore = create((set, get) => ({
       streamError: null,
     }));
 
-    const controller = sendMessage(id, text, {
-      onUser: (serverMsg) => {
+    const handlers = get()._streamHandlers(id, assistantMsg.id, {
+      // Swap our optimistic user bubble for the server's persisted one (real id).
+      onUserSwap: (serverMsg) => {
         set((s) => ({
           messages: s.messages.map((m) => (m.id === userMsg.id ? serverMsg : m)),
         }));
       },
-      onDelta: (delta) => {
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: m.content + delta } : m
-          ),
-        }));
-      },
-      onReasoning: (delta) => {
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            m.id === assistantMsg.id
-              ? { ...m, reasoning: (m.reasoning || '') + delta }
-              : m
-          ),
-        }));
-      },
-      onDone: ({ message, title }) => {
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            m.id === assistantMsg.id ? message : m
-          ),
-          streaming: false,
-          controller: null,
-          conversations: s.conversations.map((c) =>
-            c.id === id
-              ? {
-                  ...c,
-                  title: title || c.title,
-                  messageCount: (c.messageCount || 0) + 2,
-                  updatedAt: Date.now(),
-                }
-              : c
-          ),
-        }));
-      },
-      onError: (message) => {
-        set((s) => ({
-          streaming: false,
-          controller: null,
-          streamError: message,
-          // Drop the empty assistant bubble if nothing streamed.
-          messages: s.messages.filter(
-            (m) => !(m.id === assistantMsg.id && !m.content)
-          ),
-        }));
-      },
-    }, get().activeModel);
+    });
+    // Bump the conversation message count once the exchange completes.
+    const baseOnDone = handlers.onDone;
+    handlers.onDone = (data) => {
+      baseOnDone(data);
+      set((s) => ({
+        conversations: s.conversations.map((c) =>
+          c.id === id ? { ...c, messageCount: (c.messageCount || 0) + 2 } : c
+        ),
+      }));
+    };
 
+    const controller = sendMessage(id, text, handlers, get().activeModel);
     set({ controller });
+  },
+
+  // Regenerate the latest assistant reply. Retry is offered only on the newest
+  // answer, so we clear its text in place and re-stream into the same bubble.
+  async regenerate(messageId) {
+    const id = get().activeId;
+    const { messages, streaming } = get();
+    if (!id || streaming) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant' || last.id !== messageId) return;
+
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === messageId ? { ...m, content: '', reasoning: '' } : m
+      ),
+      streaming: true,
+      streamError: null,
+    }));
+
+    const handlers = get()._streamHandlers(id, messageId);
+    // On failure the server may have kept the previous reply (if nothing
+    // streamed) — re-sync from disk so the transcript matches what's persisted
+    // instead of leaving a dropped or half-written bubble.
+    handlers.onError = async (message) => {
+      set({ streaming: false, controller: null, streamError: message });
+      try {
+        const conv = await api.getConversation(id);
+        if (get().activeId === id) set({ messages: conv.messages });
+      } catch { /* keep whatever is on screen */ }
+    };
+    const controller = regenerateMessage(id, messageId, handlers, get().activeModel);
+    set({ controller });
+  },
+
+  // Delete the whole turn a message belongs to (user + its reply). The server
+  // returns the survivors; sync both the transcript and the list count.
+  async deleteMessage(messageId) {
+    const id = get().activeId;
+    if (!id || get().streaming) return;
+    try {
+      const { messages } = await api.deleteMessage(id, messageId);
+      set((s) => ({
+        messages,
+        conversations: s.conversations.map((c) =>
+          c.id === id ? { ...c, messageCount: messages.length, updatedAt: Date.now() } : c
+        ),
+      }));
+    } catch (err) {
+      set({ streamError: err.message });
+    }
   },
 
   stopGeneration() {

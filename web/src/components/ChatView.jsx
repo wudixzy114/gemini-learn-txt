@@ -121,6 +121,7 @@ export default function ChatView() {
                 key={m.id}
                 message={m}
                 streaming={streaming && i === messages.length - 1 && m.role === 'assistant'}
+                isLast={i === messages.length - 1}
               />
             ))}
             {streamError && (

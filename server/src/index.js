@@ -92,43 +92,35 @@ app.delete('/api/conversations/:id', (req, res) => {
 });
 
 // ---- Streaming chat --------------------------------------------------------
-// POST /api/conversations/:id/messages  { content }
-// Streams the assistant reply as SSE, then persists both messages.
-app.post('/api/conversations/:id/messages', async (req, res) => {
-  const conv = getConversation(req.params.id);
-  if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
-  const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
-  if (!content) return res.status(400).json({ error: 'Message content is required' });
-
-  // Resolve the model for this turn: an explicit (valid) request override wins,
-  // else the conversation's saved choice, else the server default. Persist it so
-  // the conversation remembers the last model used.
-  const requested = req.body.model;
-  const model =
+// Resolve the model for a turn: an explicit (valid) request override wins, else
+// the conversation's saved choice, else the server default.
+function resolveModel(requested, conv) {
+  return (
     (typeof requested === 'string' && isValidModel(requested) && requested) ||
     (isValidModel(conv.model) && conv.model) ||
-    config.model;
-  conv.model = model;
+    config.model
+  );
+}
 
-  const userMsg = { id: nanoid(10), role: 'user', content, createdAt: now() };
-  conv.messages.push(userMsg);
-  conv.updatedAt = now();
-  saveConversation(conv);
-
-  // Open the SSE stream.
+function openSSE(res) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
-  const send = (event, data) => {
+  return (event, data) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
+}
 
-  send('user', userMsg);
-
+// Stream one assistant reply for `conv` (whose messages array already ends at
+// the user turn to answer), emitting SSE frames via `send` and persisting the
+// result. `onDone(assistantMsg)` runs after a successful stream and before the
+// conversation is saved; whatever object it returns is merged into the 'done'
+// frame (used for auto-titling). Shared by the new-message and regenerate routes.
+async function streamAssistantReply({ res, conv, model, send, onDone }) {
   const assistantMsg = { id: nanoid(10), role: 'assistant', content: '', reasoning: '', createdAt: now() };
   const abort = new AbortController();
   // Abort the upstream call only if the client disconnects mid-stream.
@@ -167,32 +159,109 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
 
   conv.messages.push(assistantMsg);
   conv.updatedAt = now();
-
-  // Auto-title on the first exchange, best-effort and non-blocking for the stream.
-  let titled = false;
-  if (conv.title === 'New chat') {
-    try {
-      const title = await completeOnce({
-        model,
-        systemPrompt:
-          'Generate a short, specific title (2-6 words, no quotes, no trailing punctuation) ' +
-          'for a conversation that starts with the user message below. Reply with the title only, ' +
-          'in the same language as the message.',
-        messages: [{ role: 'user', content }],
-      });
-      if (title) {
-        conv.title = title.replace(/^["'“”]+|["'“”]+$/g, '').slice(0, 80);
-        titled = true;
-      }
-    } catch {
-      // Titling is optional; ignore failures.
-    }
-  }
-
+  const extra = onDone ? (await onDone(assistantMsg)) || {} : {};
   saveConversation(conv);
   finished = true;
-  send('done', { message: assistantMsg, title: titled ? conv.title : undefined });
+  send('done', { message: assistantMsg, ...extra });
   res.end();
+}
+
+// POST /api/conversations/:id/messages  { content }
+// Streams the assistant reply as SSE, then persists both messages.
+app.post('/api/conversations/:id/messages', async (req, res) => {
+  const conv = getConversation(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+  const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+  if (!content) return res.status(400).json({ error: 'Message content is required' });
+
+  // Persist the resolved model so the conversation remembers the last one used.
+  const model = resolveModel(req.body.model, conv);
+  conv.model = model;
+
+  const userMsg = { id: nanoid(10), role: 'user', content, createdAt: now() };
+  conv.messages.push(userMsg);
+  conv.updatedAt = now();
+  saveConversation(conv);
+
+  const send = openSSE(res);
+  send('user', userMsg);
+
+  await streamAssistantReply({
+    res, conv, model, send,
+    // Auto-title on the first exchange, best-effort.
+    onDone: async () => {
+      if (conv.title !== 'New chat') return {};
+      try {
+        const title = await completeOnce({
+          model,
+          systemPrompt:
+            'Generate a short, specific title (2-6 words, no quotes, no trailing punctuation) ' +
+            'for a conversation that starts with the user message below. Reply with the title only, ' +
+            'in the same language as the message.',
+          messages: [{ role: 'user', content }],
+        });
+        if (title) {
+          conv.title = title.replace(/^["'“”]+|["'“”]+$/g, '').slice(0, 80);
+          return { title: conv.title };
+        }
+      } catch {
+        // Titling is optional; ignore failures.
+      }
+      return {};
+    },
+  });
+});
+
+// POST /api/conversations/:id/messages/:messageId/regenerate
+// Regenerate the latest assistant reply (retry is offered only on the newest
+// answer). Drops that reply and re-streams a fresh one from the same history.
+app.post('/api/conversations/:id/messages/:messageId/regenerate', async (req, res) => {
+  const conv = getConversation(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+  const msgs = conv.messages;
+  const last = msgs[msgs.length - 1];
+  if (!last || last.role !== 'assistant' || last.id !== req.params.messageId) {
+    return res.status(409).json({ error: 'Can only regenerate the latest assistant reply' });
+  }
+  if (msgs.length < 2 || msgs[msgs.length - 2].role !== 'user') {
+    return res.status(409).json({ error: 'Nothing to regenerate from' });
+  }
+
+  // Drop the old reply in memory only — don't persist the removal yet, so the
+  // previous answer survives on disk if generation fails before any text streams.
+  msgs.pop();
+  const model = resolveModel(req.body.model, conv);
+  conv.model = model;
+
+  const send = openSSE(res);
+  await streamAssistantReply({ res, conv, model, send });
+});
+
+// DELETE /api/conversations/:id/messages/:messageId
+// Deletes the whole turn the message belongs to (a user message plus the
+// assistant reply that follows it, or an assistant reply plus its question) so
+// the transcript stays coherent. Returns the surviving messages.
+app.delete('/api/conversations/:id/messages/:messageId', (req, res) => {
+  const conv = getConversation(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+  const idx = conv.messages.findIndex((m) => m.id === req.params.messageId);
+  if (idx === -1) return res.status(404).json({ error: 'Message not found' });
+
+  const msg = conv.messages[idx];
+  let start = idx;
+  let end = idx;
+  if (msg.role === 'user' && conv.messages[idx + 1]?.role === 'assistant') {
+    end = idx + 1;
+  } else if (msg.role === 'assistant' && conv.messages[idx - 1]?.role === 'user') {
+    start = idx - 1;
+  }
+  conv.messages.splice(start, end - start + 1);
+  conv.updatedAt = now();
+  saveConversation(conv);
+  res.json({ messages: conv.messages });
 });
 
 // ---- Serve built frontend in production ------------------------------------

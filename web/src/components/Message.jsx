@@ -1,8 +1,11 @@
 import React, { useState, useCallback } from 'react';
+import { useStore } from '../store.js';
 import { Markdown } from './Markdown.jsx';
-import { IconCopy, IconCheck, IconBook } from './icons.jsx';
+import { IconCopy, IconCheck, IconBook, IconRegenerate, IconTrash } from './icons.jsx';
 
-function MessageActions({ content }) {
+// Actions under an assistant answer: copy, optional retry (newest reply only),
+// and delete-the-turn.
+function AssistantActions({ content, messageId, canRetry, onRetry, onDelete }) {
   const [copied, setCopied] = useState(false);
   const copy = useCallback(async () => {
     try {
@@ -16,6 +19,21 @@ function MessageActions({ content }) {
       <button className="ghost-btn" onClick={copy} type="button">
         {copied ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
         {copied ? 'Copied' : 'Copy'}
+      </button>
+      {canRetry && (
+        <button className="ghost-btn" onClick={() => onRetry(messageId)} type="button" title="Regenerate this reply">
+          <IconRegenerate width={14} height={14} />
+          Retry
+        </button>
+      )}
+      <button
+        className="ghost-btn danger"
+        onClick={() => onDelete(messageId)}
+        type="button"
+        title="Delete this exchange"
+      >
+        <IconTrash width={14} height={14} />
+        Delete
       </button>
     </div>
   );
@@ -47,13 +65,27 @@ function Reasoning({ text, active }) {
   );
 }
 
-export default function Message({ message, streaming }) {
+export default function Message({ message, streaming, isLast }) {
   const isUser = message.role === 'user';
   const empty = !message.content;
   const hasReasoning = !isUser && !!message.reasoning;
   // The thinking phase is "active" while reasoning is streaming but the answer
   // hasn't begun yet — keep the block open then so the user sees live thinking.
   const thinkingActive = streaming && hasReasoning && empty;
+
+  const anyStreaming = useStore((s) => s.streaming);
+  const regenerate = useStore((s) => s.regenerate);
+  const deleteMessage = useStore((s) => s.deleteMessage);
+
+  // Retry only on the newest assistant reply (regenerating it discards nothing
+  // else). Both actions are hidden while any generation is in flight.
+  const canRetry = !isUser && isLast && !anyStreaming;
+
+  const onDelete = () => {
+    if (confirm('Delete this exchange? This removes the question and its answer.')) {
+      deleteMessage(message.id);
+    }
+  };
 
   return (
     <div className={`msg-row ${isUser ? 'user' : 'assistant'}`}>
@@ -64,7 +96,17 @@ export default function Message({ message, streaming }) {
         <div className="msg-body">
           <div className="msg-name">{isUser ? 'You' : 'Study Room'}</div>
           {isUser ? (
-            <div className="user-text">{message.content}</div>
+            <>
+              <div className="user-text">{message.content}</div>
+              {!anyStreaming && (
+                <div className="msg-actions user-actions">
+                  <button className="ghost-btn danger" onClick={onDelete} type="button" title="Delete this exchange">
+                    <IconTrash width={14} height={14} />
+                    Delete
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <>
               {hasReasoning && <Reasoning text={message.reasoning} active={thinkingActive} />}
@@ -80,9 +122,17 @@ export default function Message({ message, streaming }) {
                   {streaming && <span className="stream-caret" aria-hidden="true" />}
                 </>
               )}
+              {!empty && !streaming && (
+                <AssistantActions
+                  content={message.content}
+                  messageId={message.id}
+                  canRetry={canRetry}
+                  onRetry={regenerate}
+                  onDelete={onDelete}
+                />
+              )}
             </>
           )}
-          {!isUser && !empty && !streaming && <MessageActions content={message.content} />}
         </div>
       </div>
     </div>
