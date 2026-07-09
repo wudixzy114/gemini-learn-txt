@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from './store.js';
 import Sidebar from './components/Sidebar.jsx';
 import ChatView from './components/ChatView.jsx';
+import ModelPicker from './components/ModelPicker.jsx';
 import { IconSun, IconMoon, IconMenu } from './components/icons.jsx';
 
 function useTheme() {
@@ -44,6 +45,7 @@ export default function App() {
           >
             <IconMenu width={20} height={20} />
           </button>
+          <ModelPicker />
           <div className="topbar-title" title={active?.title}>
             {active?.title || 'New chat'}
           </div>

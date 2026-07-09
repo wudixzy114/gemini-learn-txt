@@ -29,6 +29,7 @@ export function listConversations() {
       items.push({
         id: conv.id,
         title: conv.title || 'New chat',
+        model: conv.model,
         createdAt: conv.createdAt,
         updatedAt: conv.updatedAt,
         messageCount: Array.isArray(conv.messages) ? conv.messages.length : 0,

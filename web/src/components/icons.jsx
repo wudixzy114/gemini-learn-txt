@@ -80,3 +80,7 @@ export const IconRegenerate = (p) => (
 export const IconArrowDown = (p) => (
   <svg {...base} {...p}><path d="M12 5v14M5 12l7 7 7-7" /></svg>
 );
+
+export const IconChevronDown = (p) => (
+  <svg {...base} {...p}><path d="m6 9 6 6 6-6" /></svg>
+);

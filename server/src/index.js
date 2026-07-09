@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { nanoid } from 'nanoid';
-import { config } from './config.js';
+import { config, MODELS, isValidModel } from './config.js';
 import {
   listConversations,
   getConversation,
@@ -23,12 +23,17 @@ const now = () => Date.now();
 
 function newConversation() {
   const ts = now();
-  return { id: nanoid(12), title: 'New chat', createdAt: ts, updatedAt: ts, messages: [] };
+  return { id: nanoid(12), title: 'New chat', model: config.model, createdAt: ts, updatedAt: ts, messages: [] };
 }
 
 // ---- Health / meta ---------------------------------------------------------
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, model: config.model });
+});
+
+// Model catalog the UI offers, plus which one is the default.
+app.get('/api/models', (_req, res) => {
+  res.json({ models: MODELS, default: config.model });
 });
 
 // ---- Conversation CRUD -----------------------------------------------------
@@ -51,8 +56,19 @@ app.get('/api/conversations/:id', (req, res) => {
 app.patch('/api/conversations/:id', (req, res) => {
   const conv = getConversation(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+  let changed = false;
   if (typeof req.body.title === 'string') {
     conv.title = req.body.title.slice(0, 120).trim() || conv.title;
+    changed = true;
+  }
+  if (typeof req.body.model === 'string') {
+    if (!isValidModel(req.body.model)) {
+      return res.status(400).json({ error: 'Unknown model' });
+    }
+    conv.model = req.body.model;
+    changed = true;
+  }
+  if (changed) {
     conv.updatedAt = now();
     saveConversation(conv);
   }
@@ -74,6 +90,16 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
 
   const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
   if (!content) return res.status(400).json({ error: 'Message content is required' });
+
+  // Resolve the model for this turn: an explicit (valid) request override wins,
+  // else the conversation's saved choice, else the server default. Persist it so
+  // the conversation remembers the last model used.
+  const requested = req.body.model;
+  const model =
+    (typeof requested === 'string' && isValidModel(requested) && requested) ||
+    (isValidModel(conv.model) && conv.model) ||
+    config.model;
+  conv.model = model;
 
   const userMsg = { id: nanoid(10), role: 'user', content, createdAt: now() };
   conv.messages.push(userMsg);
@@ -107,6 +133,7 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
     await streamChat({
       messages: conv.messages,
       signal: abort.signal,
+      model,
       onReasoning: (delta) => {
         assistantMsg.reasoning += delta;
         send('reasoning', { text: delta });
@@ -136,6 +163,7 @@ app.post('/api/conversations/:id/messages', async (req, res) => {
   if (conv.title === 'New chat') {
     try {
       const title = await completeOnce({
+        model,
         systemPrompt:
           'Generate a short, specific title (2-6 words, no quotes, no trailing punctuation) ' +
           'for a conversation that starts with the user message below. Reply with the title only, ' +

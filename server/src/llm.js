@@ -22,9 +22,9 @@ function toContents(messages) {
     }));
 }
 
-function buildBody(messages, { stream, systemPrompt, generationConfig } = {}) {
+function buildBody(messages, { stream, systemPrompt, generationConfig, model } = {}) {
   const body = {
-    model: config.model,
+    model: model || config.model,
     contents: toContents(messages),
     stream: Boolean(stream),
   };
@@ -90,9 +90,10 @@ async function postResponses(body, abortSignal) {
  * onReasoning(text) for each thinking chunk. Returns { answer, reasoning }.
  * Throws on non-2xx or network failure.
  */
-export async function streamChat({ messages, signal, onDelta, onReasoning, temperature = 0.7 }) {
+export async function streamChat({ messages, signal, onDelta, onReasoning, temperature = 0.7, model }) {
   const body = buildBody(messages, {
     stream: true,
+    model,
     generationConfig: {
       temperature,
       maxOutputTokens: config.maxOutputTokens,
@@ -167,9 +168,10 @@ export async function streamChat({ messages, signal, onDelta, onReasoning, tempe
 }
 
 /** Non-streaming completion used for short utility calls like auto-titling. */
-export async function completeOnce({ messages, systemPrompt, temperature = 0.3, maxTokens = 200 }) {
+export async function completeOnce({ messages, systemPrompt, temperature = 0.3, maxTokens = 200, model }) {
   const body = buildBody(messages, {
     stream: false,
+    model,
     systemPrompt: systemPrompt || TITLING_FALLBACK,
     generationConfig: {
       temperature,

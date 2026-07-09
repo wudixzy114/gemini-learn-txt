@@ -16,6 +16,8 @@ async function json(res) {
 export const api = {
   health: () => fetch('/api/health').then(json),
 
+  listModels: () => fetch('/api/models').then(json),
+
   listConversations: () => fetch('/api/conversations').then(json),
 
   createConversation: () =>
@@ -30,6 +32,13 @@ export const api = {
       body: JSON.stringify({ title }),
     }).then(json),
 
+  setModel: (id, model) =>
+    fetch(`/api/conversations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    }).then(json),
+
   deleteConversation: (id) =>
     fetch(`/api/conversations/${id}`, { method: 'DELETE' }).then(json),
 };
@@ -39,7 +48,7 @@ export const api = {
  * Callbacks: onUser, onDelta(text), onReasoning(text), onDone({message,title}), onError(msg).
  * Returns an AbortController so the caller can stop generation.
  */
-export function sendMessage(conversationId, content, handlers = {}) {
+export function sendMessage(conversationId, content, handlers = {}, model) {
   const controller = new AbortController();
 
   (async () => {
@@ -48,7 +57,7 @@ export function sendMessage(conversationId, content, handlers = {}) {
       res = await fetch(`/api/conversations/${conversationId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(model ? { content, model } : { content }),
         signal: controller.signal,
       });
     } catch (err) {

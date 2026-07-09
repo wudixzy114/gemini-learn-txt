@@ -18,12 +18,36 @@ function required(name) {
   return value;
 }
 
+// Selectable models. Only the Gemini family speaks the gateway's native
+// /v1/responses protocol that this server implements (Claude/DeepSeek/GLM 404
+// there), so the switcher is scoped to Gemini. Each entry is a chat option the
+// UI offers; `id` is the exact gateway model id sent upstream.
+export const MODELS = [
+  {
+    id: 'Gemini-3-Flash-Preview-joybuilder',
+    label: 'Gemini 3 Flash',
+    blurb: 'Fast, everyday answers',
+  },
+  {
+    id: 'Gemini-3.1-Pro-Preview-joybuilder',
+    label: 'Gemini 3.1 Pro',
+    blurb: 'Deeper reasoning, slower',
+  },
+];
+
+export function isValidModel(id) {
+  return MODELS.some((m) => m.id === id);
+}
+
+const DEFAULT_MODEL = 'Gemini-3-Flash-Preview-joybuilder';
+
 export const config = {
   rootDir,
   port: Number(process.env.PORT) || 8791,
   apiKey: required('JD_LLM_API_KEY'),
   baseUrl: required('JD_LLM_BASE_URL').replace(/\/+$/, ''),
-  model: process.env.XIAOSHU_MODEL || 'Gemini-3-Flash-Preview-joybuilder',
+  // Default model for new conversations. Per-conversation choice overrides this.
+  model: isValidModel(process.env.XIAOSHU_MODEL) ? process.env.XIAOSHU_MODEL : DEFAULT_MODEL,
   // Gemini-3 reasoning depth for the main chat: "high" (max) | "medium" | "low".
   // (Gemini 3 uses thinkingLevel; the older numeric thinkingBudget is superseded.)
   thinkingLevel: process.env.XIAOSHU_THINKING_LEVEL || 'high',

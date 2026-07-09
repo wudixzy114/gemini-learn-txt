@@ -5,6 +5,9 @@ export const useStore = create((set, get) => ({
   conversations: [],
   activeId: null,
   messages: [],
+  models: [],
+  defaultModel: null,
+  activeModel: null,
   loadingList: true,
   loadingConversation: false,
   streaming: false,
@@ -13,6 +16,12 @@ export const useStore = create((set, get) => ({
 
   // ---- Bootstrapping -------------------------------------------------------
   async init() {
+    // Load the model catalog first so the picker has options; tolerate failure.
+    try {
+      const { models, default: def } = await api.listModels();
+      set({ models, defaultModel: def, activeModel: def });
+    } catch { /* picker will just be empty */ }
+
     try {
       const conversations = await api.listConversations();
       set({ conversations, loadingList: false });
@@ -40,6 +49,7 @@ export const useStore = create((set, get) => ({
       conversations: [{ ...conv, messageCount: 0 }, ...s.conversations],
       activeId: conv.id,
       messages: [],
+      activeModel: conv.model || s.defaultModel,
       streamError: null,
     }));
   },
@@ -50,7 +60,11 @@ export const useStore = create((set, get) => ({
     set({ loadingConversation: true, streamError: null, activeId: id });
     try {
       const conv = await api.getConversation(id);
-      set({ messages: conv.messages, loadingConversation: false });
+      set({
+        messages: conv.messages,
+        activeModel: conv.model || get().defaultModel,
+        loadingConversation: false,
+      });
     } catch (err) {
       set({ loadingConversation: false, streamError: err.message });
     }
@@ -77,6 +91,22 @@ export const useStore = create((set, get) => ({
     try {
       await api.renameConversation(id, clean);
     } catch { /* keep optimistic value */ }
+  },
+
+  // Switch the active conversation's model. Optimistic: apply locally, then
+  // persist. Takes effect on the conversation's next turn. Blocked mid-stream.
+  async setModel(model) {
+    const id = get().activeId;
+    if (!model || !id || get().streaming || model === get().activeModel) return;
+    set((s) => ({
+      activeModel: model,
+      conversations: s.conversations.map((c) =>
+        c.id === id ? { ...c, model } : c
+      ),
+    }));
+    try {
+      await api.setModel(id, model);
+    } catch { /* keep optimistic value; next send will still send it */ }
   },
 
   // ---- Sending & streaming -------------------------------------------------
@@ -154,7 +184,7 @@ export const useStore = create((set, get) => ({
           ),
         }));
       },
-    });
+    }, get().activeModel);
 
     set({ controller });
   },
