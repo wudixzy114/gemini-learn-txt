@@ -6,6 +6,14 @@ import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import { IconCopy, IconCheck } from './icons.jsx';
 
+function getTextContent(value) {
+  if (value == null || typeof value === 'boolean') return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(getTextContent).join('');
+  if (React.isValidElement(value)) return getTextContent(value.props.children);
+  return '';
+}
+
 function CopyButton({ getText, label = 'Copy' }) {
   const [copied, setCopied] = useState(false);
   const onCopy = useCallback(async () => {
@@ -27,7 +35,7 @@ function CopyButton({ getText, label = 'Copy' }) {
 function CodeBlock({ className, children }) {
   const match = /language-(\w+)/.exec(className || '');
   const lang = match ? match[1] : 'text';
-  const raw = String(children ?? '');
+  const raw = getTextContent(children);
   return (
     <div className="code-block">
       <div className="code-block-head">
