@@ -63,6 +63,14 @@ export const IconMenu = (p) => (
   <svg {...base} {...p}><path d="M4 6h16M4 12h16M4 18h16" /></svg>
 );
 
+// Download / export (tray with a down arrow into it).
+export const IconDownload = (p) => (
+  <svg {...base} {...p}>
+    <path d="M12 3v12M8 11l4 4 4-4" />
+    <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+  </svg>
+);
+
 export const IconBook = (p) => (
   <svg {...base} {...p}>
     <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2Z" />

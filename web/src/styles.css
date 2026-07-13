@@ -398,6 +398,8 @@ button { font-family: inherit; cursor: pointer; }
   transition: background 0.14s, color 0.14s;
 }
 .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.icon-btn:disabled:hover { background: transparent; color: var(--ink-soft); }
 .icon-btn.tiny { width: 28px; height: 28px; border-radius: 7px; }
 .icon-btn.danger:hover { color: var(--danger); background: transparent; }
 

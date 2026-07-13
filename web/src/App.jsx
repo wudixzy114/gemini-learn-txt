@@ -3,7 +3,18 @@ import { useStore } from './store.js';
 import Sidebar from './components/Sidebar.jsx';
 import ChatView from './components/ChatView.jsx';
 import ModelPicker from './components/ModelPicker.jsx';
-import { IconSun, IconMoon, IconMenu } from './components/icons.jsx';
+import { IconSun, IconMoon, IconMenu, IconDownload } from './components/icons.jsx';
+import { downloadConversationMarkdown } from './export.js';
+
+// Below this width (but above the 820px mobile drawer breakpoint) the 288px
+// sidebar crowds the reading column, so we auto-collapse it to the icon rail.
+const NARROW_QUERY = '(max-width: 1024px)';
+const isNarrow = () => {
+  try { return window.matchMedia(NARROW_QUERY).matches; } catch { return false; }
+};
+const savedCollapsed = () => {
+  try { return localStorage.getItem('sidebarCollapsed') === '1'; } catch { return false; }
+};
 
 function useTheme() {
   const [theme, setTheme] = useState(
@@ -22,15 +33,11 @@ export default function App() {
   const init = useStore((s) => s.init);
   const conversations = useStore((s) => s.conversations);
   const activeId = useStore((s) => s.activeId);
+  const messages = useStore((s) => s.messages);
   const [theme, toggleTheme] = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem('sidebarCollapsed') === '1';
-    } catch {
-      return false;
-    }
-  });
+  // Collapsed if the user saved that preference, or the window starts narrow.
+  const [collapsed, setCollapsed] = useState(() => savedCollapsed() || isNarrow());
 
   const toggleCollapse = () => {
     setCollapsed((v) => {
@@ -41,6 +48,16 @@ export default function App() {
       return next;
     });
   };
+
+  // Auto-collapse when the window narrows; when it widens again, restore the
+  // user's saved manual preference rather than forcing the sidebar open.
+  useEffect(() => {
+    let mql;
+    try { mql = window.matchMedia(NARROW_QUERY); } catch { return; }
+    const onChange = (e) => setCollapsed(e.matches ? true : savedCollapsed());
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
     init();
@@ -70,6 +87,15 @@ export default function App() {
           <div className="topbar-title" title={active?.title}>
             {active?.title || 'New chat'}
           </div>
+          <button
+            className="icon-btn"
+            onClick={() => active && downloadConversationMarkdown(active, messages)}
+            disabled={!active || messages.length === 0}
+            aria-label="Export conversation"
+            title="Export conversation as Markdown"
+          >
+            <IconDownload width={19} height={19} />
+          </button>
           <button
             className="icon-btn"
             onClick={toggleTheme}
